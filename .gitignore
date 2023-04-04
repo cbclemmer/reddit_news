@@ -1,0 +1,9 @@
+key_openai.txt
+key_org.txt
+key_pinecone.txt
+keys/
+chat_logs/*
+chunk_summaries/*
+kg_topics/*
+gpt3_logs/*
+__pycache__/
