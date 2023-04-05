@@ -3,6 +3,7 @@ import openai
 from typing import List
 import datetime
 from medium import Client
+import json
 
 def open_file(filepath):
     with open(filepath, 'r', encoding='utf-8') as infile:
@@ -19,7 +20,7 @@ class GptCompletion:
         defaultConfig = {
             "model": self.model,
             "prompt": prompt,
-            "max_tokens": 150,
+            "max_tokens": 175,
             "n": 1,
             "stop": None,
             "temperature": 0.8
@@ -51,7 +52,9 @@ class Summarizer(GptCompletion):
         input_text = "\n\n".join(summaries)
         prompt = self.summarize_prompt.replace('<<INPUT>>', input_text)
         print('PROMPT:\n' + prompt + '\n\n')
-        return self.complete(prompt)
+        return self.complete(prompt, {
+            "max_tokens": 500
+        })
 
 class RedditReader:
     def __init__(self, reddit_client: Reddit, api_key: str, medium_token: str):
@@ -68,6 +71,7 @@ class RedditReader:
         posts = list(sub.hot(limit=limit))
         posts.sort(key=lambda post: post.score, reverse=True)
 
+        max_length = 2000
         for post in posts:
             post_url = f"https://www.reddit.com{post.permalink}"
             if hasattr(post, 'crosspost_parent_list'):
@@ -78,9 +82,22 @@ class RedditReader:
                 body = post.selftext
 
             post.comments.replace_more(limit=None)
-            top_comments = sorted(post.comments.list(), key=lambda comment: comment.score, reverse=True)[:5]
-            comments_text = '\n'.join([f"{comment.author}: {comment.body[:200]}" for comment in top_comments])
-            summary = self.post_reader.read(body[:1000] + '\nEND_POST\nBEGIN_COMMENTS:\n' + comments_text)
+            body_length = len(body[:1000])
+            comments_text = ''
+            characters_left = max_length
+            if (len(post.comments.list()) > 0):
+                top_comments = sorted(post.comments.list(), key=lambda comment: comment.score, reverse=True)
+                selected_comments = top_comments[:5]
+                comment_length = (max_length - body_length) // len(selected_comments)
+                comments_text = '\n'.join([f"{comment.author}: {comment.body[:comment_length]}" for comment in selected_comments])
+                comment_index = 5
+                while body_length + len(comments_text) < max_length and comment_index < len(top_comments):
+                    comment = top_comments[comment_index]
+                    comments_text += f'\n{comment.author}: {comment.body[:comment_length]}'
+                    comment_index += 1
+
+            characters_left -= len(comments_text)
+            summary = self.post_reader.read(body[:characters_left] + '\nEND_POST\nBEGIN_COMMENTS:\n' + comments_text)
             summaries.append((post.title, post.score, post_url, summary))
             print(post_url)
             print('\nPost:')
@@ -96,9 +113,11 @@ class RedditReader:
         overall_summary, summaries = self.read_posts(subreddit, limit)
 
         today = datetime.date.today().strftime("%Y-%m-%d")
-        title = f"Reddit {subreddit.capitalize()} Daily Digest - {today}"
+        title = f"r/{subreddit.capitalize()} Daily Digest - {today}"
 
-        content = f"<h2>Overall Summary</h2><p>{overall_summary}</p><h2>Curated List</h2>"
+        content = f"\
+        <h1>{title}</h1>\
+        <p>{overall_summary}</p><h2>Posts</h2>"
 
         for post_title, upvotes, post_url, summary in summaries:
             content += f"<h3>^ {upvotes} - <a href='{post_url}'>{post_title}</a></h3><p>{summary}</p>"
