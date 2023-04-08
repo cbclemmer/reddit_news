@@ -4,64 +4,80 @@ from typing import List
 import datetime
 from medium import Client
 import json
+import tiktoken
 
 def open_file(filepath):
     with open(filepath, 'r', encoding='utf-8') as infile:
         return infile.read()
 
+def save_file(filepath, content):
+    with open(filepath, 'w', encoding='utf-8') as outfile:
+        outfile.write(content)
+
 class GptCompletion:
-    def __init__(self, api_key: str, model: str) -> None:
-        self.api_key = api_key
-        self.model = model
-        openai.api_key = self.api_key
+    def __init__(self, system_prompt: str) -> None:
+        self.system_prompt = system_prompt
+        self.encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
+        self.system_prompt_tokens = len(self.encoding.encode(self.system_prompt))
         self.total_tokens = 0
 
-    def complete(self, prompt: str, config: dict = {}):
+    def complete(self, prompt: str, response_tokens: int = 100, config: dict = {}):
+        prompt_tokens = len(self.encoding.encode(prompt))
+        total_tokens = self.system_prompt_tokens + prompt_tokens + response_tokens
+        if total_tokens >= 4096:
+            raise "Chat completion error: too many tokens requested: " + total_tokens
         defaultConfig = {
-            "model": self.model,
-            "prompt": prompt,
-            "max_tokens": 175,
-            "n": 1,
-            "stop": None,
-            "temperature": 0.8
+            "model": 'gpt-3.5-turbo',
+            "max_tokens": response_tokens,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": self.system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "temperature": 0.5
         }
 
         defaultConfig.update(config)
-        res = openai.Completion.create(**defaultConfig)
-        msg = res.choices[0].text.strip()
+        res = openai.ChatCompletion.create(**defaultConfig)
+        msg = res.choices[0].message.content.strip()
         self.total_tokens += res.usage.total_tokens
         return msg
 
-
 class PostReader(GptCompletion):
-    def __init__(self, api_key: str):
-        super().__init__(api_key, 'text-davinci-003')
-        self.post_read_prompt = open_file('prompts/read_post.prompt')
+    def __init__(self):
+        super().__init__(open_file('prompts/read_post.prompt'))
 
     def read(self, post: str):
-        prompt = self.post_read_prompt.replace('<<INPUT>>', post)
-        print('PROMPT:\n' + prompt + '\n\n')
-        return self.complete(prompt)
+        return self.complete(post)
 
 class Summarizer(GptCompletion):
-    def __init__(self, api_key: str):
-        super().__init__(api_key, 'text-davinci-003')
-        self.summarize_prompt = open_file('prompts/summarizer.prompt')
+    def __init__(self):
+        super().__init__(open_file('prompts/summarizer.prompt'))
 
     def summarize(self, summaries: List[str]):
-        input_text = "\n\n".join(summaries)
-        prompt = self.summarize_prompt.replace('<<INPUT>>', input_text)
-        print('PROMPT:\n' + prompt + '\n\n')
-        return self.complete(prompt, {
-            "max_tokens": 500
-        })
+        response_tokens = 300
+        list = ''
+        for s in summaries:
+            if len(self.encoding.encode(s)) + len(self.encoding.encode(list))  + self.system_prompt_tokens + response_tokens + 200 >= 4096:
+                break
+            list += f'\n\nPost:\n{s}'
+        return self.complete(list, response_tokens)
 
 class RedditReader:
     def __init__(self, reddit_client: Reddit, api_key: str, medium_token: str):
+        openai.api_key = api_key
         self.reddit = reddit_client
-        self.post_reader = PostReader(api_key)
-        self.summarizer = Summarizer(api_key)
+        self.post_reader = PostReader()
+        self.summarizer = Summarizer()
         self.medium = Client(access_token=medium_token)
+        user = self.medium.get_current_user()
+        self.medium_user_id = user['id']
+        self.completions = []
 
     def read_posts(self, subreddit: str, limit: int = 10):
         print(f'Getting posts from r/{subreddit}')
@@ -71,7 +87,7 @@ class RedditReader:
         posts = list(sub.hot(limit=limit))
         posts.sort(key=lambda post: post.score, reverse=True)
 
-        max_length = 2000
+        max_length = 4000
         for post in posts:
             post_url = f"https://www.reddit.com{post.permalink}"
             if hasattr(post, 'crosspost_parent_list'):
@@ -82,7 +98,7 @@ class RedditReader:
                 body = post.selftext
 
             post.comments.replace_more(limit=None)
-            body_length = len(body[:1000])
+            body_length = len(body[:max_length//2])
             comments_text = ''
             characters_left = max_length
             if (len(post.comments.list()) > 0):
@@ -97,14 +113,26 @@ class RedditReader:
                     comment_index += 1
 
             characters_left -= len(comments_text)
-            summary = self.post_reader.read(body[:characters_left] + '\nEND_POST\nBEGIN_COMMENTS:\n' + comments_text)
+            post_reader_prompt = body[:characters_left] + '\nEND_POST\nBEGIN_COMMENTS:\n' + comments_text
+            summary = self.post_reader.read(post_reader_prompt)
+            self.completions.append({
+                "system": self.post_reader.system_prompt,
+                "prompt": post_reader_prompt,
+                "completion": summary
+            })
             summaries.append((post.title, post.score, post_url, summary))
             print(post_url)
             print('\nPost:')
             print(summary)
             print('\n\n')
 
-        overall_summary = self.summarizer.summarize([summary for _, _, _, summary in summaries])
+        summary_texts = [summary for _, _, _, summary in summaries]
+        overall_summary = self.summarizer.summarize(summary_texts)
+        self.completions.append({
+            "system": self.summarizer.system_prompt,
+            "prompt": "\n\n".join(summary_texts),
+            "completion": overall_summary
+        })
         print('Overall:')
         print(overall_summary)
         return overall_summary, summaries
@@ -122,11 +150,8 @@ class RedditReader:
         for post_title, upvotes, post_url, summary in summaries:
             content += f"<h3>^ {upvotes} - <a href='{post_url}'>{post_title}</a></h3><p>{summary}</p>"
 
-        user = self.medium.get_current_user()
-        user_id = user['id']
-
         post = self.medium.create_post(
-            user_id=user_id,
+            user_id=self.medium_user_id,
             title=title,
             content=content,
             content_format='html',
@@ -134,5 +159,10 @@ class RedditReader:
         )
 
         print(f'Tokens: {self.post_reader.total_tokens + self.summarizer.total_tokens}')
+
+        i = 0
+        for completion in self.completions:
+            save_file(f'completions/{subreddit}_{today}_{i}.json', json.dumps(completion))
+            i += 1
 
         return post['url'], post['id']

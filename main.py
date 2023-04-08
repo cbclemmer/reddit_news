@@ -1,4 +1,5 @@
 import sys
+import json
 from praw import Reddit
 from reddit_reader import RedditReader
 
@@ -14,19 +15,14 @@ subreddit = 'all'
 if len(sys.argv) > 1:
     subreddit = sys.argv[1]
 
-reddit_client_id = open_file('keys/reddit_id.txt')
-reddit_client_secret = open_file('keys/reddit_secret.txt')
-reddit_user_agent = 'github_scraper'
-
-medium_token=open_file('keys/medium.txt')
-openai_key = open_file('keys/openai.txt')
+config = json.loads(open_file('config.json'))
 
 reddit = Reddit(
-    client_id=reddit_client_id,
-    client_secret=reddit_client_secret,
-    user_agent=reddit_user_agent
+    client_id=config["reddit_id"],
+    client_secret=config["reddit_secret"],
+    user_agent=config["reddit_app"]
 )
 
-reader = RedditReader(reddit, openai_key, medium_token)
+reader = RedditReader(reddit, config["openai_key"], config["medium_key"])
 post_url, post_id = reader.post_to_medium(subreddit, limit=20)
 print('Post: ' + post_url)
