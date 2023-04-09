@@ -48,6 +48,53 @@ class GptCompletion:
         self.total_tokens += res.usage.total_tokens
         return msg
 
+class GptChat:
+    def __init__(self, system_prompt_file: str) -> None:
+        self.system_prompt = open_file('prompts/' + system_prompt_file)
+        self.encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
+        self.system_prompt_tokens = len(self.encoding.encode(self.system_prompt))
+        self.messages = [
+            {
+                "role": "system",
+                "content": self.system_prompt
+            }
+        ]
+        self.total_tokens = 0
+
+    def get_message_tokens(self):
+        message_tokens = 0
+        for m in self.messages:
+            message_tokens += len(self.encoding.encode(m["content"]))
+        return message_tokens
+
+    def send(self, message: str):
+        message_tokens = self.get_message_tokens()
+        message_tokens += len(self.encoding.encode(message))
+        
+        if message_tokens >= 4096 - 200:
+            raise "Chat Error too many tokens"
+        
+        self.messages.append({
+            "role": "user",
+            "content": message
+        })
+        
+        defaultConfig = {
+            "model": 'gpt-3.5-turbo',
+            "max_tokens": 100,
+            "messages": self.messages,
+            "temperature": 0.5
+        }
+
+        res = openai.ChatCompletion.create(**defaultConfig)
+        msg = res.choices[0].message.content.strip()
+        self.messages.append({
+            "role": "assistant",
+            "content": msg
+        })
+        self.total_tokens += res.usage.total_tokens
+        return msg
+
 class PostReader(GptCompletion):
     def __init__(self):
         super().__init__(open_file('prompts/read_post.prompt'))
@@ -68,16 +115,50 @@ class Summarizer(GptCompletion):
             list += f'\n\nPost:\n{s}'
         return self.complete(list, response_tokens)
 
+class Secretary(GptCompletion):
+    def __init__(self):
+        super().__init__(open_file('prompts/secretary.prompt'))
+    
+    def summarize(self, messages):
+        response_tokens = 300
+        list = ''
+        for m in messages:
+            list += f'\n\n{m["role"]}:\n{m["content"]}'
+        return self.complete(list, response_tokens)
+
+class Director(GptChat):
+    def __init__(self):
+        super().__init__('news_director.prompt')
+        self.secretary = Secretary()
+    
+    def loop(self):
+        res = self.send('Here is the your notes about the companies current state of affairs:\n' + open_file('director_notes.txt'))
+        print(f'\nDirector:\n{res}')
+        while True:
+            user_input = input('\n\nUser:\n')
+            if user_input == 'SAVE' or self.get_message_tokens() > 4000:
+                print('Summarizing')
+                notes = self.secretary.summarize(self.messages)
+                save_file('director_notes.txt', notes)
+                print('Notes saved')
+                break
+            res = self.send(user_input)
+            print(f'\n\nDirector:\n{res}')
+
 class RedditReader:
     def __init__(self, reddit_client: Reddit, api_key: str, medium_token: str):
         openai.api_key = api_key
         self.reddit = reddit_client
         self.post_reader = PostReader()
         self.summarizer = Summarizer()
+        self.director = Director()
         self.medium = Client(access_token=medium_token)
         user = self.medium.get_current_user()
         self.medium_user_id = user['id']
         self.completions = []
+
+    def director_chat(self):
+        self.director.loop()
 
     def read_posts(self, subreddit: str, limit: int = 10):
         print(f'Getting posts from r/{subreddit}')
@@ -160,9 +241,9 @@ class RedditReader:
 
         print(f'Tokens: {self.post_reader.total_tokens + self.summarizer.total_tokens}')
 
-        i = 0
+        text = ''
         for completion in self.completions:
-            save_file(f'completions/{subreddit}_{today}_{i}.json', json.dumps(completion))
-            i += 1
+            text += json.dumps(completion) + '\n'
+        save_file(f'completions/{subreddit}_{today}.jsonl', text)
 
         return post['url'], post['id']

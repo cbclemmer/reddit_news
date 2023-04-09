@@ -24,5 +24,8 @@ reddit = Reddit(
 )
 
 reader = RedditReader(reddit, config["openai_key"], config["medium_key"])
-post_url, post_id = reader.post_to_medium(subreddit, limit=20)
-print('Post: ' + post_url)
+if subreddit == 'CHAT':
+    reader.director_chat()
+else:
+    post_url, post_id = reader.post_to_medium(subreddit, limit=20)
+    print('Post: ' + post_url)
