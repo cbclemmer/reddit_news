@@ -2,3 +2,5 @@ openai
 medium
 praw
 github
+PyPDF2
+urllib

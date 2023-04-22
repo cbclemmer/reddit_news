@@ -23,7 +23,7 @@ post_fetcher = RedditPostFetcher(
     config["reddit_app"]
 )
 
-posts = post_fetcher.fetch()
+posts = post_fetcher.fetch_posts()
 
 reader = BotReader(posts, config["openai_key"], config["medium_key"])
 if subreddit == 'CHAT':
