@@ -145,25 +145,18 @@ class Director(GptChat):
             res = self.send(user_input)
             print(f'\n\nDirector:\n{res}')
 
-class RedditReader:
-    def __init__(self, reddit_client: Reddit, api_key: str, medium_token: str):
-        openai.api_key = api_key
-        self.reddit = reddit_client
-        self.post_reader = PostReader()
-        self.summarizer = Summarizer()
-        self.director = Director()
-        self.medium = Client(access_token=medium_token)
-        user = self.medium.get_current_user()
-        self.medium_user_id = user['id']
-        self.completions = []
+class RedditPostFetcher:
+    def __init__(self, id: str, secret: str, user_agent: str):
+        self.client = Reddit(
+            client_id=id,
+            client_secret=secret,
+            user_agent=user_agent
+        )
 
-    def director_chat(self):
-        self.director.loop()
-
-    def read_posts(self, subreddit: str, limit: int = 10):
+    def fetch(self, subreddit, limit=10):
         print(f'Getting posts from r/{subreddit}')
-        sub = self.reddit.subreddit(subreddit)
-        summaries = []
+        sub = self.client.subreddit(subreddit)
+        ret_posts = []
 
         posts = list(sub.hot(limit=limit))
         posts.sort(key=lambda post: post.score, reverse=True)
@@ -195,15 +188,40 @@ class RedditReader:
 
             characters_left -= len(comments_text)
             post_reader_prompt = body[:characters_left] + '\nEND_POST\nBEGIN_COMMENTS:\n' + comments_text
-            summary = self.post_reader.read(post_reader_prompt)
+            ret_posts.append({
+                "title": post.title,
+                "text": post_reader_prompt,
+                "url": post_url
+            })
+        return ret_posts
+
+class BotReader:
+    def __init__(self, posts: List[str], api_key: str, medium_token: str):
+        openai.api_key = api_key
+        self.posts = posts
+        self.post_reader = PostReader()
+        self.summarizer = Summarizer()
+        self.director = Director()
+        self.medium = Client(access_token=medium_token)
+        user = self.medium.get_current_user()
+        self.medium_user_id = user['id']
+        self.completions = []
+
+    def director_chat(self):
+        self.director.loop()
+
+    def read_posts(self):
+        summaries = []
+        for post in self.posts:
+            summary = self.post_reader.read(post.post)
             self.completions.append({
                 "system": self.post_reader.system_prompt,
-                "prompt": post_reader_prompt,
+                "prompt": post.text,
                 "completion": summary
             })
-            summaries.append((post.title, post.score, post_url, summary))
-            print(post_url)
+            summaries.append((post.title, post.url, summary))
             print('\nPost:')
+            print(post.url)
             print(summary)
             print('\n\n')
 
@@ -228,8 +246,8 @@ class RedditReader:
         <h1>{title}</h1>\
         <p>{overall_summary}</p><h2>Posts</h2>"
 
-        for post_title, upvotes, post_url, summary in summaries:
-            content += f"<h3>^ {upvotes} - <a href='{post_url}'>{post_title}</a></h3><p>{summary}</p>"
+        for post_title, post_url, summary in summaries:
+            content += f"<h3><a href='{post_url}'>{post_title}</a></h3><p>{summary}</p>"
 
         post = self.medium.create_post(
             user_id=self.medium_user_id,

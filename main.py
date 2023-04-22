@@ -1,7 +1,7 @@
 import sys
 import json
 from praw import Reddit
-from reddit_reader import RedditReader
+from reddit_reader import BotReader, RedditPostFetcher
 
 def open_file(filepath):
     with open(filepath, 'r', encoding='utf-8') as infile:
@@ -17,13 +17,15 @@ if len(sys.argv) > 1:
 
 config = json.loads(open_file('config.json'))
 
-reddit = Reddit(
-    client_id=config["reddit_id"],
-    client_secret=config["reddit_secret"],
-    user_agent=config["reddit_app"]
+post_fetcher = RedditPostFetcher(
+    config["reddit_id"],
+    config["reddit_secret"],
+    config["reddit_app"]
 )
 
-reader = RedditReader(reddit, config["openai_key"], config["medium_key"])
+posts = post_fetcher.fetch()
+
+reader = BotReader(posts, config["openai_key"], config["medium_key"])
 if subreddit == 'CHAT':
     reader.director_chat()
 else:
