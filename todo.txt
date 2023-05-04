@@ -4,3 +4,5 @@ Add support for github repo monitoring
 Add support for discord monitoring
 
 Retry after open ai api call fails
+
+Support reading ARXIV archive pdfs from reddit pasts
