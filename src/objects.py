@@ -34,18 +34,17 @@ class Message:
         self.role = role
         self.content = content
 
-class Completion:
-    prompt: Message
-    completion: Message
-
-    def __init__(self, prompt: Message, completion: Message):
-        self.prompt = prompt
-        self.completion = completion
-
 class Conversation:
-    system: str
     messages: List[Message]
 
-    def __init__(self, system: str, messages: List[Message]):
-        self.system = system
+    def __init__(self, messages: List[Message]):
         self.messages = messages
+
+    def to_object(self):
+        messages = []
+        for m in self.messages:
+            messages.append({
+                "role": m.role,
+                "content": m.content
+            })
+        return messages

@@ -4,3 +4,4 @@ praw
 github
 PyPDF2
 urllib
+bs4

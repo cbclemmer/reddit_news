@@ -24,18 +24,37 @@ class RedditNews:
     def director_chat(self):
         self.director.loop()
 
+    def read_paper(self, id: str):
+        def to_snake_case(string):
+            string = string.lower().replace(' ', '_').replace('-', '_')
+            return ''.join(['_' + i.lower() if i.isupper() else i for i in string]).lstrip('_')
+        
+        summary = self.researcher.read_paper(id)
+        if summary == None:
+            print("Error occured, exiting")
+            return None
+        print("Saving completions to file")
+        self.researcher.save_completions(f'arxiv_{to_snake_case(summary.title)}_paper')
+        print("Posting article to medium")
+        print(f'Tokens: {self.researcher.total_tokens}')
+        return self.post_to_medium([summary], f'Arxiv paper: {summary.title}')
+
     def find_papers(self, subreddit: str, limit=100):
+        print(f"Fetching posts from r/{subreddit}")
         summaries = self.researcher.fetch_arxiv(subreddit, limit)
+        print("Saving completions to file")
         self.researcher.save_completions(f'{subreddit}_papers')
-        self.post_to_medium(summaries, f'Arxiv papers from r/{subreddit}')
+        print("Posting article to medium")
+        print(f'Tokens: {self.researcher.total_tokens}')
+        return self.post_to_medium(summaries, f'Arxiv papers from r/{subreddit}')
 
     def create_news_article(self, subreddit: str, limit: int=10):
         prompts = self.editor.fetch_posts(subreddit, limit)
         posts = self.editor.complete_promts(prompts)
 
         self.editor.save_completions(f'{subreddit}_news')
-
-        self.post_to_medium(posts, f'Reddit News: r/{subreddit}')
+        print(f'Tokens: {self.editor.total_tokens}')
+        return self.post_to_medium(posts, f'Reddit News: r/{subreddit}')
 
     def post_to_medium(self, summaries: List[Summary], title: str):
         today = datetime.date.today().strftime("%Y-%m-%d")
@@ -43,8 +62,8 @@ class RedditNews:
         <h1>{title} - {today}</h1>\
         "
 
-        for post_title, post_url, summary in summaries:
-            content += f"<h3><a href='{post_url}'>{post_title}</a></h3><p>{summary}</p>"
+        for summary in summaries:
+            content += f"<h3><a href='{summary.url}'>{summary.title}</a></h3><p>{summary.text}</p>"
 
         post = self.medium.create_post(
             user_id=self.medium_user_id,
@@ -53,7 +72,5 @@ class RedditNews:
             content_format='html',
             publish_status='public'
         )
-
-        print(f'Tokens: {self.post_reader.total_tokens + self.summarizer.total_tokens}')
 
         return post['url'], post['id']
