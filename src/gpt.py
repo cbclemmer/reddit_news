@@ -62,7 +62,7 @@ class GptChat:
         for completion in self.conversations:
             text += json.dumps(completion.to_object()) + '\n'
         today = datetime.date.today().strftime("%Y-%m-%d")
-        save_file(f'../completions/{file_name}_{today}.jsonl', text)
+        save_file(f'../completions/{file_name}_{today}.json', text)
 
     def add_message(self, message: str, role: str):
         self.messages.append(Message(role, message))
