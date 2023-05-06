@@ -1,3 +1,5 @@
+from typing import List
+
 class RedditPost:
     url: str
     title: str
@@ -24,12 +26,26 @@ class Summary(Prompt):
     def __init__(self, title: str, text: str, url: str):
         super().__init__(title, text, url)
 
-class Completion:
-    system: str
-    prompt: str
-    completion: str
+class Message:
+    role: str
+    content: str
 
-    def __init__(self, system: str, prompt: str, completion: str):
-        self.system = system
+    def __init__(self, role: str, content: str):
+        self.role = role
+        self.content = content
+
+class Completion:
+    prompt: Message
+    completion: Message
+
+    def __init__(self, prompt: Message, completion: Message):
         self.prompt = prompt
         self.completion = completion
+
+class Conversation:
+    system: str
+    messages: List[Message]
+
+    def __init__(self, system: str, messages: List[Message]):
+        self.system = system
+        self.messages = messages

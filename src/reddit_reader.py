@@ -4,6 +4,7 @@ import datetime
 from medium import Client
 from reddit import PostReader
 from bots import Editor, Researcher
+from objects import Summary
 
 class RedditNews:
     def __init__(self, 
@@ -23,6 +24,11 @@ class RedditNews:
     def director_chat(self):
         self.director.loop()
 
+    def find_papers(self, subreddit: str, limit=100):
+        summaries = self.researcher.fetch_arxiv(subreddit, limit)
+        self.researcher.save_completions(f'{subreddit}_papers')
+        self.post_to_medium(summaries, f'Arxiv papers from r/{subreddit}')
+
     def create_news_article(self, subreddit: str, limit: int=10):
         prompts = self.editor.fetch_posts(subreddit, limit)
         posts = self.editor.complete_promts(prompts)
@@ -31,7 +37,7 @@ class RedditNews:
 
         self.post_to_medium(posts, f'Reddit News: r/{subreddit}')
 
-    def post_to_medium(self, summaries, title):
+    def post_to_medium(self, summaries: List[Summary], title: str):
         today = datetime.date.today().strftime("%Y-%m-%d")
         content = f"\
         <h1>{title} - {today}</h1>\

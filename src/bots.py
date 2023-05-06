@@ -1,20 +1,18 @@
 from urllib.parse import urlparse
 from typing import List
 import requests
-import datetime
-import json
 import re
 
 import PyPDF2
 
 from gpt import GptChat
 from reddit import PostReader
-from util import open_file, save_file
-from objects import Prompt, Completion, Summary
+from util import open_file
+from objects import Prompt, Conversation, Summary
 
 class Bot(GptChat):
     post_reader: PostReader
-    completions: List[Completion]
+    conversations: List[Conversation]
 
     def __init__(self, pr: PostReader, prompt_file: str):
         super().__init__(prompt_file)
@@ -23,13 +21,6 @@ class Bot(GptChat):
 
     def fetch_posts(self, subreddit: str, limit=10) -> List[Prompt]:
         return []
-    
-    def save_completions(self, file_name):
-        text = ''
-        for completion in self.completions:
-            text += json.dumps(completion) + '\n'
-        today = datetime.date.today().strftime("%Y-%m-%d")
-        save_file(f'completions/{file_name}_{today}.jsonl', text)
 
     def complete_promts(self, prompts: List[Prompt]) -> List[Summary]:
         summaries = []
@@ -37,26 +28,27 @@ class Bot(GptChat):
             print('\nPost:')
             print(prompt.url)
 
+            self.reset_chat()
             summary = self.send(prompt.text)
-            self.completions.append(Completion(self.system_prompt, prompt.text, summary))
             summaries.append(Summary(prompt.title, prompt.url, summary))
             
             print(summary)
             print('\n\n')
 
+        self.reset_chat()
         return summaries
 
 class Researcher(Bot):
     def __init__(self, pr: PostReader):
         super().__init__(pr, 'researcher')
     
-    def fetch_arxiv(self, subreddit, limit=10) -> List[Prompt]:
+    def fetch_arxiv(self, subreddit, limit=10, max_tokens=10000) -> List[Summary]:
         def cleanup_link(link):
             # Remove trailing characters like parentheses, brackets, and periods
             link = re.sub(r'[\)\]\.]+$', '', link)
             return link
 
-        read_papers = open_file('arxiv_papers').split('\n')
+        read_papers = open_file('arxiv_papers.txt').split('\n')
         ret_posts = [ ]
 
         posts = self.post_fetcher.get_posts(self, subreddit, 100)
@@ -73,15 +65,56 @@ class Researcher(Bot):
                 if id in read_papers:
                     continue
                 print('Found paper id: ' + id)
-                pdf_url = f'https://arxiv.org/pdf/{id}.pdf'
-                response = requests.get(pdf_url)
-                if response.status_code != 200:
-                    print("Could not find latex source for paper")
+                summary = self.read_paper(id, max_tokens)
+                if summary == None:
                     continue
-                pdfReader = PyPDF2.PdfFileReader(response.content)
-                for page_num in range(0, pdfReader.numPages):
-                    page = pdfReader.getPage(page_num).extractText()
-                    tokens = self.encoding.encode(page)
+                ret_posts.append(summary)
+        return ret_posts
+
+    def read_paper(self, id: str, max_tokens: int = 20000, chunk_size: int = 2500) -> Summary | None:
+        pdf_url = f'https://arxiv.org/pdf/{id}.pdf'
+        response = requests.get(pdf_url)
+        if response.status_code != 200:
+            print("Could not find latex source for paper")
+            return None
+        pdfReader = PyPDF2.PdfFileReader(response.content)
+        title = pdfReader.getText('title')
+        print(f'Name: {title}')
+        should_read = input('Read paper?: ')
+        if should_read is not 'YES':
+            return None
+        print('What should I keep in mind while reading the paper? (leave blank if no notes)')
+        notes = input('Notes: ')
+        text = ''
+        for page_num in range(0, pdfReader.numPages):
+            page = pdfReader.getPage(page_num).extractText()
+            text += ' ' + page
+        tokens = self.encoding.encode(page)
+        if len(tokens) > max_tokens:
+            tokens = tokens[:max_tokens]
+        summary = ''
+        first = False
+        while len(tokens) > 0:
+            chunk = tokens[:chunk_size]
+            tokens = tokens[chunk_size:]
+            text = self.encoding.decode(chunk)
+            self.reset_chat()
+            if notes is not '':
+                self.add_message(f'Keep in mind that {notes}', 'user')
+                self.add_message('Ok, I\'ll keep that in mind', 'assistant')
+            if first:
+                first = False
+            else:
+                self.add_message("What is the summary so far?", "user")
+                self.add_message(summary, "assistant")
+                self.add_message("Are you ready for the next page?", "user")
+                self.add_message("Yes, please provide the next page of text", "assistant")
+            summary = self.send(text, 500)
+            print(f'\n\n\n{summary}\n\n\n')
+        self.reset_chat()
+        with open('arvix_papers.txt', 'a') as f:
+            f.write(id)
+        return Summary(title, summary, pdf_url)
 
 class Editor(Bot):
     def __init__(self, post_reader: PostReader):

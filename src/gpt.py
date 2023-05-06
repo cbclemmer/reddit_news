@@ -1,6 +1,11 @@
+import datetime
+import json
+
 import tiktoken
 import openai
-from util import open_file
+from util import open_file, save_file
+from objects import Conversation
+
 
 class GptCompletion:
     def __init__(self, system_prompt: str) -> None:
@@ -41,44 +46,53 @@ class GptChat:
         self.system_prompt = open_file('prompts/' + system_prompt_file + '.prompt')
         self.encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
         self.system_prompt_tokens = len(self.encoding.encode(self.system_prompt))
-        self.messages = [
-            {
-                "role": "system",
-                "content": self.system_prompt
-            }
-        ]
+        self.conversations = []
+        self.reset_chat()
         self.total_tokens = 0
 
-    def get_message_tokens(self):
+    def save_completions(self, file_name):
+        text = ''
+        for completion in self.conversations:
+            text += json.dumps(completion) + '\n'
+        today = datetime.date.today().strftime("%Y-%m-%d")
+        save_file(f'completions/{file_name}_{today}.jsonl', text)
+
+    def add_message(self, message: str, role: str):
+        self.messages.append({
+            "role": role,
+            "content": message
+        })
+
+    def reset_chat(self):
+        if len(self.messages) > 1:
+            self.conversations.append(Conversation(self.system_prompt, self.messages))
+        self.messages = [ ]
+        self.add_message(self.system_prompt, "system")
+
+    def get_message_tokens(self) -> int:
         message_tokens = 0
         for m in self.messages:
             message_tokens += len(self.encoding.encode(m["content"]))
         return message_tokens
 
-    def send(self, message: str) -> str:
+    def send(self, message: str, max_tokens=100) -> str:
         message_tokens = self.get_message_tokens()
         message_tokens += len(self.encoding.encode(message))
         
         if message_tokens >= 4096 - 200:
             raise "Chat Error too many tokens"
         
-        self.messages.append({
-            "role": "user",
-            "content": message
-        })
+        self.add_message(message, "user")
         
         defaultConfig = {
             "model": 'gpt-3.5-turbo',
             "max_tokens": 100,
-            "messages": self.messages,
+            "messages": max_tokens,
             "temperature": 0.5
         }
 
         res = openai.ChatCompletion.create(**defaultConfig)
         msg = res.choices[0].message.content.strip()
-        self.messages.append({
-            "role": "assistant",
-            "content": msg
-        })
+        self.add_message(msg, "assistant")
         self.total_tokens += res.usage.total_tokens
         return msg
