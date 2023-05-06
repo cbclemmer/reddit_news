@@ -62,8 +62,10 @@ class RedditNews:
         <h1>{title} - {today}</h1>\
         "
 
+
         for summary in summaries:
-            content += f"<h3><a href='{summary.url}'>{summary.title}</a></h3><p>{summary.text}</p>"
+            text = summary.text.replace('\n', '<br>')
+            content += f"<h3><a href='{summary.url}'>{summary.title}</a></h3><p>{text}</p>"
 
         post = self.medium.create_post(
             user_id=self.medium_user_id,
