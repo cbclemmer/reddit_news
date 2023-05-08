@@ -10,4 +10,6 @@ Support reading ARXIV archive pdfs from reddit pasts
 For reading papers:
 collect a number of summaries together and make one larger summary from it.
 It still has to keep in mind the summary immediately behind it when creating new summaries
-To keep sentences from getting broken up, overlap the summerization chunks by 50 tokens or
+To keep sentences from getting broken up, overlap the summerization chunks by 50 tokens or so
+Maybe have a separate overall summerizer that constantly summarizes the last x summaries that fit into the context window?
+Then funnel that to the researcher to use as the context for the new summary
