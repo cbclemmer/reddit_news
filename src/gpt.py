@@ -1,5 +1,6 @@
 import datetime
 import json
+import time
 
 import tiktoken
 import openai
@@ -96,7 +97,13 @@ class GptChat:
             "temperature": 0.5
         }
 
-        res = openai.ChatCompletion.create(**defaultConfig)
+        try:
+            res = openai.ChatCompletion.create(**defaultConfig)
+        except:
+            print('Error when sending chat, retrying in one minute')
+            time.sleep(60)
+            self.messages = self.messages[:-1]
+            self.send(message, max_tokens)
         msg = res.choices[0].message.content.strip()
         print(f"GPT API responded with {res.usage.completion_tokens} tokens")
         self.add_message(msg, "assistant")

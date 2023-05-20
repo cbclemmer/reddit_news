@@ -37,5 +37,7 @@ elif command == 'news':
 elif command == 'research_news':
     post_url, post_id = reader.find_papers(subreddit)
 elif command == 'read_paper':
-    post_url, post_id = reader.read_paper(subreddit)
+    ret_val = reader.read_paper(subreddit)
+    if ret_val != None:
+        post_url = ret_val[0]
 print('Post: ' + post_url)

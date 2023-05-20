@@ -38,9 +38,38 @@ class Bot(GptChat):
         self.reset_chat()
         return summaries
 
+class ReaserchSummarizer(Bot):
+    def __init__(self, pr: PostReader):
+        super().__init__(pr, 'research_summarizer')
+
+    def summarize_chunk_list(self, overall_summary = '', list = [], note = ''):
+        if len(list) == 0:
+            return ''
+        self.reset_chat()
+        print('Creating overall summary:')
+        if len(note) > 0:
+            self.add_message('Please keep this note in mind:\n' + note, 'user')
+            self.add_message('Ok, I\' keep that in mind', 'assistant')
+        if len(overall_summary) > 0:
+            print(f'Overall summary is {len(self.encoding.encode(overall_summary))} tokens')
+            self.add_message('What is the summary overall?', 'user')
+            self.add_message(overall_summary, 'assistant')
+        self.add_message('Ok, I\'m now going to give you the new notes', 'user')
+        self.add_message('Ok, I\'m ready for the new notes', 'assistant')
+        total_summary_tokens = 0
+        for summary in list:
+            current_summary_tokens = len(self.encoding.encode(summary))
+            print(f'Summary is {current_summary_tokens} tokens')
+            total_summary_tokens += current_summary_tokens
+            self.add_message(summary, 'user')
+            self.add_message('Ok, I\'m ready for the next note', 'assistant')
+        print(f'All Summaries are {total_summary_tokens} tokens')
+        return self.send('That is all the summaries, what is the new overall summary?', 700)
+
 class Researcher(Bot):
     def __init__(self, pr: PostReader):
         super().__init__(pr, 'researcher')
+        self.summarizer = ReaserchSummarizer(pr)
     
     def fetch_arxiv(self, subreddit, limit=10, max_tokens=10000) -> List[Summary]:
         def cleanup_link(link):
@@ -82,7 +111,7 @@ class Researcher(Bot):
                 ret_posts.append(summary)
         return ret_posts
 
-    def read_paper(self, id: str, max_tokens: int = 20000, chunk_size: int = 2500) -> Summary | None:
+    def read_paper(self, id: str, max_tokens: int = 30000, chunk_size: int = 2500) -> Summary | None:
         abs_url = f'https://arxiv.org/abs/{id}'
         response = requests.get(abs_url)
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -90,7 +119,7 @@ class Researcher(Bot):
         abstract_elem = soup.find('blockquote', {'class': 'abstract'})
         print(abstract_elem.text)
         should_read = input('Read paper?: ')
-        if should_read != 'YES':
+        if should_read.lower() != 'yes':
             return None
 
         print("Downloading pdf")
@@ -112,32 +141,46 @@ class Researcher(Bot):
         print(f"Paper has {len(tokens)} tokens")
         if len(tokens) > max_tokens:
             tokens = tokens[:max_tokens]
-        summary = ''
         first = False
         processed_tokens = 0
+        summary_list = []
+        last_summary = ''
+        overall_summary = ''
         while len(tokens) > 0:
             chunk = tokens[:chunk_size]
             tokens = tokens[chunk_size:]
-            text = self.encoding.decode(chunk)
-            self.reset_chat()
-            if notes != '':
-                self.add_message(f'Keep in mind this note:\n{notes}', 'user')
-                self.add_message('Ok, I\'ll keep that in mind', 'assistant')
-            if first:
-                first = False
+            last_summary = self.read_chunk(overall_summary, chunk, first, notes)
+            summary_list.append(last_summary)
+            if len(summary_list) > 4:
+                summary_list = summary_list[1:5]
+            if len(summary_list) > 1:
+                overall_summary = self.summarizer.summarize_chunk_list(overall_summary, summary_list)
             else:
-                self.add_message("What is the summary so far?", "user")
-                self.add_message(summary, "assistant")
-                self.add_message("Are you ready for the next page?", "user")
-                self.add_message("Yes, please provide the next page of text", "assistant")
-            summary = self.send(text, 700)
-            print(f'\n\n\n{summary}\n\n\n')
+                overall_summary = last_summary
+            print(f'\n\n\nOverall Summary:{overall_summary}\n\n\n')
+            print(f'\n\n\nCurrent Summary:{last_summary}\n\n\n')
             processed_tokens += chunk_size
             print(f"Processed {processed_tokens} of {total_tokens} tokens")
         self.reset_chat()
         with open('../arvix_papers.txt', 'a') as f:
             f.write(id + '\n')
-        return Summary(soup.title.string, summary, pdf_url)
+        return Summary(soup.title.string, overall_summary, pdf_url)
+    
+    def read_chunk(self, current_summary, chunk, first, notes):
+        text = self.encoding.decode(chunk)
+        self.reset_chat()
+        if notes != '':
+            self.add_message(f'Keep in mind this note:\n{notes}', 'user')
+            self.add_message('Ok, I\'ll keep that in mind', 'assistant')
+        if first:
+            first = False
+        else:
+            self.add_message("What is the summary so far?", "user")
+            self.add_message(current_summary, "assistant")
+            self.add_message("Are you ready for the next page?", "user")
+            self.add_message("Yes, please provide the next page of text", "assistant")
+        return self.send(text, 500)
+
 
 class Editor(Bot):
     def __init__(self, post_reader: PostReader):

@@ -1,15 +1,23 @@
-Use director notes in prompts for writers
+// Use director notes in prompts for writers
 
 Add support for github repo monitoring
 Add support for discord monitoring
 
-Retry after open ai api call fails
+// Retry after open ai api call fails
 
-Support reading ARXIV archive pdfs from reddit pasts
+// Support reading ARXIV archive pdfs from reddit posts
 
 For reading papers:
-collect a number of summaries together and make one larger summary from it.
-It still has to keep in mind the summary immediately behind it when creating new summaries
-To keep sentences from getting broken up, overlap the summerization chunks by 50 tokens or so
-Maybe have a separate overall summerizer that constantly summarizes the last x summaries that fit into the context window?
-Then funnel that to the researcher to use as the context for the new summary
+// collect a number of summaries together and make one larger summary from it.
+// It still has to keep in mind the summary immediately behind it when creating new summaries
+// To keep sentences from getting broken up, overlap the summerization chunks by 50 tokens or so
+// Maybe have a separate overall summerizer that constantly summarizes the last x summaries that fit into the context window?
+// Then funnel that to the researcher to use as the context for the new summary
+
+Split off the ARXIV reading functionality into it's own project:
+    It should be run on a web server
+    It should be able to print out the output periodically to the server
+    Page should first ask for the id of the paper and an email address to send the completed request to
+    Then it should display the name and abstract and ask for verification along with a question
+    The webpage should periodically ping the server for updates and only the data that hasn't been sent yet should be sent to the webpage
+    The ping should return whether the bot is done reading the paper and if it is done, fire the email and display that it is done on the page
